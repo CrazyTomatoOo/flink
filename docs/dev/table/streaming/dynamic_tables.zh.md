@@ -136,7 +136,11 @@ DataStream 上的关系查询
 
 一个查询是产生一个只追加的表还是一个更新的表有一些含义:
 - 产生更新更改的查询通常必须维护更多的状态(请参阅以下部分)。
+<<<<<<< HEAD
 - 将 append-only 的表转换为流与将已更新的表转换为流是不同的(参阅 [表到流的转换](#table-to-stream-conversion)章节)。
+=======
+- 将 append-only 的表转换为流与将已更新的表转换为流是不同的(参阅[表到流的转换](#table-to-stream-conversion)章节)。
+>>>>>>> 6ee5dbabfa4e0efa7ac8f1f8e03a75c303ffc622
 
 ### 查询限制
 
@@ -161,6 +165,11 @@ FROM (
 
 [查询配置](query_configuration.html)章节讨论了控制连续查询执行的参数。一些参数可以用来在维持状态的大小和获得结果的准确性之间做取舍。
 
+<<<<<<< HEAD
+=======
+<a name="table-to-stream-conversion"></a>
+
+>>>>>>> 6ee5dbabfa4e0efa7ac8f1f8e03a75c303ffc622
 表到流的转换
 --------------------------
 
