@@ -173,10 +173,11 @@ public class ArrowPythonScalarFunctionRunnerTest extends AbstractPythonScalarFun
 			inputType,
 			outputType,
 			maxArrowBatchSize,
+			Collections.emptyMap(),
 			jobBundleFactory) {
 			@Override
 			public ArrowWriter<Row> createArrowWriter() {
-				return ArrowUtils.createRowArrowWriter(root);
+				return ArrowUtils.createRowArrowWriter(root, getInputType());
 			}
 		};
 	}

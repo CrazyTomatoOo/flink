@@ -23,6 +23,7 @@ import org.apache.flink.table.dataformat.BaseRow;
 import org.apache.flink.table.dataformat.BinaryRow;
 import org.apache.flink.table.dataformat.BinaryRowWriter;
 import org.apache.flink.table.dataformat.BinaryString;
+import org.apache.flink.table.dataformat.Decimal;
 import org.apache.flink.table.dataformat.GenericRow;
 import org.apache.flink.table.dataformat.util.BaseRowUtil;
 
@@ -115,6 +116,11 @@ public class StreamRecordUtils {
 				writer.writeLong(j, (Long) value);
 			} else if (value instanceof Boolean) {
 				writer.writeBoolean(j, (Boolean) value);
+			} else if (value instanceof byte[]) {
+				writer.writeBinary(j, (byte[]) value);
+			} else if (value instanceof Decimal) {
+				Decimal decimal = (Decimal) value;
+				writer.writeDecimal(j, decimal, decimal.getPrecision());
 			} else {
 				throw new RuntimeException("Not support yet!");
 			}

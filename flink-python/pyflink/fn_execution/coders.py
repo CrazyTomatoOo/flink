@@ -22,13 +22,16 @@ from abc import ABC
 import datetime
 import decimal
 import pyarrow as pa
+import pytz
 from apache_beam.coders import Coder
 from apache_beam.coders.coders import FastCoder, LengthPrefixCoder
+from apache_beam.options.pipeline_options import DebugOptions
 from apache_beam.portability import common_urns
 from apache_beam.typehints import typehints
 
 from pyflink.fn_execution import coder_impl
 from pyflink.fn_execution import flink_fn_execution_pb2
+from pyflink.fn_execution.sdk_worker_main import pipeline_options
 from pyflink.table import Row
 
 FLINK_SCALAR_FUNCTION_SCHEMA_CODER_URN = "flink:coder:schema:scalar_function:v1"
@@ -377,6 +380,22 @@ class TimestampCoder(DeterministicCoder):
         return datetime.datetime
 
 
+class LocalZonedTimestampCoder(DeterministicCoder):
+    """
+    Coder for LocalZonedTimestamp.
+    """
+
+    def __init__(self, precision, timezone):
+        self.precision = precision
+        self.timezone = timezone
+
+    def _create_impl(self):
+        return coder_impl.LocalZonedTimestampCoderImpl(self.precision, self.timezone)
+
+    def to_type_hint(self):
+        return datetime.datetime
+
+
 class ArrowCoder(DeterministicCoder):
     """
     Coder for Arrow.
@@ -403,6 +422,32 @@ class ArrowCoder(DeterministicCoder):
                 return pa.field(field.name, pa.int32(), field.type.nullable)
             elif field.type.type_name == flink_fn_execution_pb2.Schema.TypeName.BIGINT:
                 return pa.field(field.name, pa.int64(), field.type.nullable)
+            elif field.type.type_name == flink_fn_execution_pb2.Schema.TypeName.BOOLEAN:
+                return pa.field(field.name, pa.bool_(), field.type.nullable)
+            elif field.type.type_name == flink_fn_execution_pb2.Schema.TypeName.FLOAT:
+                return pa.field(field.name, pa.float32(), field.type.nullable)
+            elif field.type.type_name == flink_fn_execution_pb2.Schema.TypeName.DOUBLE:
+                return pa.field(field.name, pa.float64(), field.type.nullable)
+            elif field.type.type_name == flink_fn_execution_pb2.Schema.TypeName.VARCHAR:
+                return pa.field(field.name, pa.utf8(), field.type.nullable)
+            elif field.type.type_name == flink_fn_execution_pb2.Schema.TypeName.VARBINARY:
+                return pa.field(field.name, pa.binary(), field.type.nullable)
+            elif field.type.type_name == flink_fn_execution_pb2.Schema.TypeName.DECIMAL:
+                return pa.field(field.name,
+                                pa.decimal128(field.type.decimal_info.precision,
+                                              field.type.decimal_info.scale),
+                                field.type.nullable)
+            elif field.type.type_name == flink_fn_execution_pb2.Schema.TypeName.DATE:
+                return pa.field(field.name, pa.date32(), field.type.nullable)
+            elif field.type.type_name == flink_fn_execution_pb2.Schema.TypeName.TIME:
+                if field.type.time_info.precision == 0:
+                    return pa.field(field.name, pa.time32('s'), field.type.nullable)
+                elif 1 <= field.type.time_type.precision <= 3:
+                    return pa.field(field.name, pa.time32('ms'), field.type.nullable)
+                elif 4 <= field.type.time_type.precision <= 6:
+                    return pa.field(field.name, pa.time64('us'), field.type.nullable)
+                else:
+                    return pa.field(field.name, pa.time64('ns'), field.type.nullable)
             else:
                 raise ValueError("field_type %s is not supported." % field.type)
 
@@ -466,6 +511,10 @@ def from_proto(field_type):
         return RowCoder([from_proto(f.type) for f in field_type.row_schema.fields])
     if field_type_name == type_name.TIMESTAMP:
         return TimestampCoder(field_type.timestamp_info.precision)
+    if field_type_name == type_name.LOCAL_ZONED_TIMESTAMP:
+        timezone = pytz.timezone(pipeline_options.view_as(DebugOptions).lookup_experiment(
+            "table.exec.timezone"))
+        return LocalZonedTimestampCoder(field_type.local_zoned_timestamp_info.precision, timezone)
     elif field_type_name == type_name.ARRAY:
         return ArrayCoder(from_proto(field_type.collection_element_type))
     elif field_type_name == type_name.MAP:
