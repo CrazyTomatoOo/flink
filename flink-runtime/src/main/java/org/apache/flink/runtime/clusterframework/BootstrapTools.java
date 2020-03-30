@@ -28,6 +28,7 @@ import org.apache.flink.configuration.CoreOptions;
 import org.apache.flink.configuration.ResourceManagerOptions;
 import org.apache.flink.runtime.akka.AkkaUtils;
 import org.apache.flink.runtime.entrypoint.parser.CommandLineOptions;
+import org.apache.flink.runtime.util.config.memory.ProcessMemoryUtils;
 import org.apache.flink.util.NetUtils;
 import org.apache.flink.util.OperatingSystem;
 
@@ -401,7 +402,7 @@ public class BootstrapTools {
 		startCommandValues.put("java", "$JAVA_HOME/bin/java");
 
 		final TaskExecutorProcessSpec taskExecutorProcessSpec = tmParams.getTaskExecutorProcessSpec();
-		startCommandValues.put("jvmmem", TaskExecutorProcessUtils.generateJvmParametersStr(taskExecutorProcessSpec));
+		startCommandValues.put("jvmmem", ProcessMemoryUtils.generateJvmParametersStr(taskExecutorProcessSpec));
 
 		String javaOpts = flinkConfig.getString(CoreOptions.FLINK_JVM_OPTIONS);
 		if (flinkConfig.getString(CoreOptions.FLINK_TM_JVM_OPTIONS).length() > 0) {
@@ -712,23 +713,5 @@ public class BootstrapTools {
 			heapLimit = minCutoff;
 		}
 		return memory - heapLimit;
-	}
-
-	/**
-	 * Method to extract environment variables from the flinkConfiguration based on the given prefix String.
-	 *
-	 * @param envPrefix Prefix for the environment variables key
-	 * @param flinkConfiguration The Flink config to get the environment variable definition from
-	 */
-	public static Map<String, String> getEnvironmentVariables(String envPrefix, Configuration flinkConfiguration) {
-		Map<String, String> result  = new HashMap<>();
-		for (Map.Entry<String, String> entry: flinkConfiguration.toMap().entrySet()) {
-			if (entry.getKey().startsWith(envPrefix) && entry.getKey().length() > envPrefix.length()) {
-				// remove prefix
-				String key = entry.getKey().substring(envPrefix.length());
-				result.put(key, entry.getValue());
-			}
-		}
-		return result;
 	}
 }
