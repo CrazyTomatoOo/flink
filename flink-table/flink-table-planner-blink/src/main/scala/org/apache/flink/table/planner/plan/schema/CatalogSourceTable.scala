@@ -19,20 +19,22 @@
 package org.apache.flink.table.planner.plan.schema
 
 import org.apache.flink.configuration.ReadableConfig
+import org.apache.flink.table.api.config.TableConfigOptions
 import org.apache.flink.table.api.{TableException, ValidationException}
 import org.apache.flink.table.catalog.CatalogTable
 import org.apache.flink.table.factories.{TableFactoryUtil, TableSourceFactory, TableSourceFactoryContextImpl}
+import org.apache.flink.table.planner.JMap
 import org.apache.flink.table.planner.calcite.{FlinkContext, FlinkRelBuilder, FlinkTypeFactory}
 import org.apache.flink.table.planner.catalog.CatalogSchemaTable
+import org.apache.flink.table.planner.hint.FlinkHints
 import org.apache.flink.table.sources.{StreamTableSource, TableSource, TableSourceValidation}
-import org.apache.flink.table.utils.TableConnectorUtils.generateRuntimeName
+
 import org.apache.calcite.plan.{RelOptSchema, RelOptTable}
 import org.apache.calcite.rel.RelNode
 import org.apache.calcite.rel.`type`.RelDataType
 import org.apache.calcite.rel.logical.LogicalTableScan
 import org.apache.flink.table.types.logical.{TimestampKind, TimestampType}
 
-import java.util
 import java.util.{List => JList}
 
 import scala.collection.JavaConversions._
@@ -64,15 +66,6 @@ class CatalogSourceTable[T](
       .toMap
   }
 
-  override def getQualifiedName: JList[String] = {
-    // Do not explain source, we already have full names, table source should be created in toRel.
-    val ret = new util.ArrayList[String](names)
-    // Add class name to distinguish TableSourceTable.
-    val name = generateRuntimeName(getClass, catalogTable.getSchema.getFieldNames)
-    ret.add(s"catalog_source: [$name]")
-    ret
-  }
-
   override def toRel(context: RelOptTable.ToRelContext): RelNode = {
     val cluster = context.getCluster
     val flinkContext = cluster
@@ -84,7 +77,19 @@ class CatalogSourceTable[T](
     // erase time indicator types in the rowType
     val erasedRowType = eraseTimeIndicator(rowType, typeFactory)
 
-    val tableSource = findAndCreateTableSource(flinkContext.getTableConfig.getConfiguration)
+    val conf = flinkContext.getTableConfig.getConfiguration
+
+    val hintedOptions = FlinkHints.getHintedOptions(context.getTableHints)
+    if (hintedOptions.nonEmpty
+      && !conf.getBoolean(TableConfigOptions.TABLE_DYNAMIC_TABLE_OPTIONS_ENABLED)) {
+      throw new ValidationException(s"${FlinkHints.HINT_NAME_OPTIONS} hint is allowed only when "
+        + s"${TableConfigOptions.TABLE_DYNAMIC_TABLE_OPTIONS_ENABLED.key} "
+        + s"is set to true")
+    }
+
+    val tableSource = findAndCreateTableSource(
+      hintedOptions,
+      conf)
     val tableSourceTable = new TableSourceTable[T](
       relOptSchema,
       schemaTable.getTableIdentifier,
@@ -92,7 +97,8 @@ class CatalogSourceTable[T](
       statistic,
       tableSource,
       schemaTable.isStreamingMode,
-      catalogTable)
+      catalogTable,
+      hintedOptions)
 
     // 1. push table scan
 
@@ -104,7 +110,7 @@ class CatalogSourceTable[T](
       .toArray
     // Copy this table with physical scan row type.
     val newRelTable = tableSourceTable.copy(tableSource, physicalFields)
-    val scan = LogicalTableScan.create(cluster, newRelTable)
+    val scan = LogicalTableScan.create(cluster, newRelTable, context.getTableHints)
     val relBuilder = FlinkRelBuilder.of(cluster, getRelOptSchema)
     relBuilder.push(scan)
 
@@ -154,10 +160,22 @@ class CatalogSourceTable[T](
   }
 
   /** Create the table source. */
-  private def findAndCreateTableSource(conf: ReadableConfig): TableSource[T] = {
+  private def findAndCreateTableSource(
+      hintedOptions: JMap[String, String],
+      conf: ReadableConfig): TableSource[T] = {
     val tableFactoryOpt = schemaTable.getTableFactory
+    val tableToFind = if (hintedOptions.nonEmpty) {
+      catalogTable.copy(
+        FlinkHints.mergeTableOptions(
+          hintedOptions,
+          catalogTable.getProperties))
+    } else {
+      catalogTable
+    }
     val context = new TableSourceFactoryContextImpl(
-      schemaTable.getTableIdentifier, catalogTable, conf)
+      schemaTable.getTableIdentifier,
+      tableToFind,
+      conf)
     val tableSource = if (tableFactoryOpt.isPresent) {
       tableFactoryOpt.get() match {
         case tableSourceFactory: TableSourceFactory[_] =>
@@ -170,7 +188,7 @@ class CatalogSourceTable[T](
     }
 
     // validation
-    val tableName = schemaTable.getTableIdentifier.asSummaryString();
+    val tableName = schemaTable.getTableIdentifier.asSummaryString
     tableSource match {
       case ts: StreamTableSource[_] =>
         if (!schemaTable.isStreamingMode && !ts.isBounded) {

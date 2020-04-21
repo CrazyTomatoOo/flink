@@ -22,7 +22,7 @@ set -Eeuo pipefail
 PLANNER="${1:-old}"
 ELASTICSEARCH_VERSION=${2:-6}
 
-KAFKA_VERSION="2.2.0"
+KAFKA_VERSION="2.2.2"
 CONFLUENT_VERSION="5.0.0"
 CONFLUENT_MAJOR_VERSION="5.0"
 KAFKA_SQL_VERSION="universal"
@@ -110,7 +110,7 @@ function prepare_elasticsearch {
     exit 1
   fi
 
-  setup_elasticsearch $DOWNLOAD_URL
+  setup_elasticsearch $DOWNLOAD_URL $ELASTICSEARCH_VERSION
   wait_elasticsearch_working
 }
 

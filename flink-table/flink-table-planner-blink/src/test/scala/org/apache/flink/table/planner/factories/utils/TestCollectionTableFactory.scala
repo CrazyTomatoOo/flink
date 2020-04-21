@@ -22,6 +22,7 @@ import org.apache.flink.api.common.ExecutionConfig
 import org.apache.flink.api.common.typeinfo.TypeInformation
 import org.apache.flink.api.common.typeutils.TypeSerializer
 import org.apache.flink.api.java.io.{CollectionInputFormat, LocalCollectionOutputFormat}
+import org.apache.flink.api.java.operators.DataSink
 import org.apache.flink.api.java.{DataSet, ExecutionEnvironment}
 import org.apache.flink.configuration.Configuration
 import org.apache.flink.streaming.api.datastream.{DataStream, DataStreamSink, DataStreamSource}
@@ -32,6 +33,7 @@ import org.apache.flink.table.descriptors.ConnectorDescriptorValidator.CONNECTOR
 import org.apache.flink.table.factories.{TableSinkFactory, TableSourceFactory}
 import org.apache.flink.table.functions.{AsyncTableFunction, TableFunction}
 import org.apache.flink.table.planner.factories.utils.TestCollectionTableFactory.{getCollectionSink, getCollectionSource}
+import org.apache.flink.table.runtime.types.TypeInfoDataTypeConverter
 import org.apache.flink.table.sinks.{AppendStreamTableSink, BatchTableSink, StreamTableSink, TableSink}
 import org.apache.flink.table.sources.{BatchTableSource, LookupableTableSource, StreamTableSource}
 import org.apache.flink.table.types.DataType
@@ -165,7 +167,7 @@ object TestCollectionTableFactory {
   class CollectionTableSink(val schema: TableSchema)
     extends BatchTableSink[Row]
       with AppendStreamTableSink[Row] {
-    override def emitDataSet(dataSet: DataSet[Row]): Unit = {
+    override def consumeDataSet(dataSet: DataSet[Row]): DataSink[_] = {
       dataSet.output(new LocalCollectionOutputFormat[Row](RESULT)).setParallelism(1)
     }
 
@@ -174,7 +176,9 @@ object TestCollectionTableFactory {
     override def getTableSchema: TableSchema = schema
 
     override def consumeDataStream(dataStream: DataStream[Row]): DataStreamSink[_] = {
-      dataStream.addSink(new UnsafeMemorySinkFunction(schema.toRowType)).setParallelism(1)
+      dataStream.addSink(new UnsafeMemorySinkFunction(
+        TypeInfoDataTypeConverter.fromDataTypeToTypeInfo(schema.toRowDataType)
+          .asInstanceOf[TypeInformation[Row]])).setParallelism(1)
     }
 
     override def configure(fieldNames: Array[String],

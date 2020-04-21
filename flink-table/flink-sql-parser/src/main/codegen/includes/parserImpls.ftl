@@ -80,7 +80,7 @@ SqlCreate SqlCreateCatalog(Span s, boolean replace) :
 }
 
 /**
-* Parse a "Show Catalogs" metadata query command.
+* Parse a "Show DATABASES" metadata query command.
 */
 SqlShowDatabases SqlShowDatabases() :
 {
@@ -107,7 +107,9 @@ SqlUseDatabase SqlUseDatabase() :
 
 /**
 * Parses a create database statement.
-* CREATE DATABASE database_name [COMMENT database_comment] [WITH (property_name=property_value, ...)];
+* <pre>CREATE DATABASE database_name
+*       [COMMENT database_comment]
+*       [WITH (property_name=property_value, ...)].</pre>
 */
 SqlCreate SqlCreateDatabase(Span s, boolean replace) :
 {
@@ -119,7 +121,10 @@ SqlCreate SqlCreateDatabase(Span s, boolean replace) :
 }
 {
     <DATABASE> { startPos = getPos(); }
-    [ <IF> <NOT> <EXISTS> { ifNotExists = true; } ]
+    [
+        LOOKAHEAD(3)
+        <IF> <NOT> <EXISTS> { ifNotExists = true; }
+    ]
     databaseName = CompoundIdentifier()
     [ <COMMENT> <QUOTED_STRING>
         {
@@ -217,7 +222,10 @@ SqlCreate SqlCreateFunction(Span s, boolean replace) :
 
     <FUNCTION>
 
-    [ <IF> <NOT> <EXISTS> { ifNotExists = true; } ]
+    [
+        LOOKAHEAD(3)
+        <IF> <NOT> <EXISTS> { ifNotExists = true; }
+    ]
 
     functionIdentifier = CompoundIdentifier()
 
@@ -248,12 +256,13 @@ SqlDrop SqlDropFunction(Span s, boolean replace) :
     boolean isSystemFunction = false;
 }
 {
-    [ <TEMPORARY> {isTemporary = true;}
+    [
+        <TEMPORARY> {isTemporary = true;}
         [  <SYSTEM>   { isSystemFunction = true; }  ]
     ]
     <FUNCTION>
 
-    [ <IF> <EXISTS> { ifExists = true; } ]
+    [ LOOKAHEAD(2) <IF> <EXISTS> { ifExists = true; } ]
 
     functionIdentifier = CompoundIdentifier()
 
@@ -281,7 +290,7 @@ SqlAlterFunction SqlAlterFunction() :
 
     <FUNCTION> { startPos = getPos(); }
 
-    [ <IF> <EXISTS> { ifExists = true; } ]
+    [ LOOKAHEAD(2) <IF> <EXISTS> { ifExists = true; } ]
 
     functionIdentifier = CompoundIdentifier()
 
@@ -564,6 +573,7 @@ SqlCreate SqlCreateTable(Span s, boolean replace) :
     SqlWatermark watermark = null;
     SqlNodeList columnList = SqlNodeList.EMPTY;
 	SqlCharStringLiteral comment = null;
+	SqlTableLike tableLike = null;
 
     SqlNodeList propertyList = SqlNodeList.EMPTY;
     SqlNodeList partitionColumns = SqlNodeList.EMPTY;
@@ -594,16 +604,15 @@ SqlCreate SqlCreateTable(Span s, boolean replace) :
     }]
     [
         <PARTITIONED> <BY>
-        partitionColumns = ParenthesizedSimpleIdentifierList() {
-            if (!((FlinkSqlConformance) this.conformance).allowCreatePartitionedTable()) {
-                throw SqlUtil.newContextException(getPos(),
-                    ParserResource.RESOURCE.createPartitionedTableIsOnlyAllowedForHive());
-            }
-        }
+        partitionColumns = ParenthesizedSimpleIdentifierList()
     ]
     [
         <WITH>
         propertyList = TableProperties()
+    ]
+    [
+        <LIKE>
+        tableLike = SqlTableLike(getPos())
     ]
     {
         return new SqlCreateTable(startPos.plus(getPos()),
@@ -614,7 +623,65 @@ SqlCreate SqlCreateTable(Span s, boolean replace) :
                 propertyList,
                 partitionColumns,
                 watermark,
-                comment);
+                comment,
+                tableLike);
+    }
+}
+
+SqlTableLike SqlTableLike(SqlParserPos startPos):
+{
+    final List<SqlTableLikeOption> likeOptions = new ArrayList<SqlTableLikeOption>();
+    SqlIdentifier tableName;
+    SqlTableLikeOption likeOption;
+}
+{
+    tableName = CompoundIdentifier()
+    [
+        <LPAREN>
+        (
+            likeOption = SqlTableLikeOption()
+            {
+                likeOptions.add(likeOption);
+            }
+        )+
+        <RPAREN>
+    ]
+    {
+        return new SqlTableLike(
+            startPos.plus(getPos()),
+            tableName,
+            likeOptions
+        );
+    }
+}
+
+SqlTableLikeOption SqlTableLikeOption():
+{
+    MergingStrategy mergingStrategy;
+    FeatureOption featureOption;
+}
+{
+    (
+        <INCLUDING> { mergingStrategy = MergingStrategy.INCLUDING; }
+    |
+        <EXCLUDING> { mergingStrategy = MergingStrategy.EXCLUDING; }
+    |
+        <OVERWRITING> { mergingStrategy = MergingStrategy.OVERWRITING; }
+    )
+    (
+        <ALL> { featureOption = FeatureOption.ALL;}
+    |
+        <CONSTRAINTS> { featureOption = FeatureOption.CONSTRAINTS;}
+    |
+        <GENERATED> { featureOption = FeatureOption.GENERATED;}
+    |
+        <OPTIONS> { featureOption = FeatureOption.OPTIONS;}
+    |
+        <PARTITIONS> { featureOption = FeatureOption.PARTITIONS;}
+    )
+
+    {
+        return new SqlTableLikeOption(mergingStrategy, featureOption);
     }
 }
 
@@ -677,7 +744,7 @@ SqlNode RichSqlInsert() :
         keywordList = new SqlNodeList(keywords, s.addAll(keywords).pos());
         extendedKeywordList = new SqlNodeList(extendedKeywords, s.addAll(extendedKeywords).pos());
     }
-    table = CompoundIdentifier()
+    table = TableRefWithHintsOpt()
     [
         LOOKAHEAD(5)
         [ <EXTEND> ]
@@ -806,7 +873,7 @@ SqlTypeNameSpec ExtendedSqlBasicTypeName() :
         }
     )
     {
-        return new ExtendedSqlBasicTypeNameSpec(typeAlias, typeName, precision, getPos());
+        return new SqlAlienSystemTypeNameSpec(typeAlias, typeName, precision, getPos());
     }
 }
 
